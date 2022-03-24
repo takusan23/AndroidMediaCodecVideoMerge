@@ -1,25 +1,29 @@
 package io.github.takusan23.androidmediacodecvideomerge
 
 import android.media.*
-import android.view.Surface
+import io.github.takusan23.androidmediacodecvideomerge.gl.CodecInputSurface
 import java.io.File
 
-
 /**
- * 映像データを結合する
+ * OpenGLを利用した[VideoDataMerge]
+ *
+ * 動画の幅とかを変えられます...
  *
  * @param videoList 結合する動画、音声ファイルの配列。入っている順番どおりに結合します。
  * @param mergeFilePath 結合したファイルの保存先
  * @param bitRate ビットレート。何故か取れなかった
  * @param frameRate フレームレート。何故か取れなかった
+ * @param videoHeight 動画の高さを帰る場合は変えられます。16の倍数であることが必須です
+ * @param videoWidth 動画の幅を変える場合は変えられます。16の倍数であることが必須です
  * */
-class VideoDataMerge(
+class VideoDataOpenGlMerge(
     videoList: List<File>,
     private val mergeFilePath: File,
     private val bitRate: Int = 1_000_000, // 1Mbps
     private val frameRate: Int = 30, // 30fps
+    private val videoWidth: Int = 1280,
+    private val videoHeight: Int = 720,
 ) {
-
     /** タイムアウト */
     private val TIMEOUT_US = 10000L
 
@@ -45,10 +49,7 @@ class VideoDataMerge(
     private var decodeMediaCodec: MediaCodec? = null
 
     /** OpenGL */
-    // private var codecInputSurface: CodecInputSurface? = null
-
-    /** エンコーダーとデコーダーの橋渡しをするSurface */
-    private var encoderSurface: Surface? = null
+    private var codecInputSurface: CodecInputSurface? = null
 
     /**
      * 結合を開始する
@@ -75,13 +76,10 @@ class VideoDataMerge(
         extractVideoFile(videoListIterator.next().path)
 
         // 解析結果から各パラメータを取り出す
-        // 動画の幅、高さは16の倍数である必要があります。（どこに書いてんねんクソが）
         val mimeType = currentMediaFormat?.getString(MediaFormat.KEY_MIME)!! // video/avc
-        val width = currentMediaFormat?.getInteger(MediaFormat.KEY_WIDTH)!! // 1280
-        val height = currentMediaFormat?.getInteger(MediaFormat.KEY_HEIGHT)!! // 720
 
         // エンコーダーにセットするMediaFormat
-        val videoMediaFormat = MediaFormat.createVideoFormat(mimeType, width, height).apply {
+        val videoMediaFormat = MediaFormat.createVideoFormat(mimeType, videoWidth, videoHeight).apply {
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, INPUT_BUFFER_SIZE)
             setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
             setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
@@ -89,8 +87,6 @@ class VideoDataMerge(
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
         }
 
-        // 後に映像トラックのトラック番号が入る
-        // encodeMediaCodec.outputFormat を MediaMuxer へ渡す
         var videoTrackIndex = NO_INDEX_VALUE
 
         // エンコード用（生データ -> H.264）MediaCodec
@@ -100,39 +96,43 @@ class VideoDataMerge(
 
         // エンコーダーのSurfaceを取得
         // デコーダーの出力Surfaceの項目にこれを指定して、エンコーダーに映像データがSurface経由で行くようにする
-        encoderSurface = encodeMediaCodec!!.createInputSurface()
+        // なんだけど、直接Surfaceを渡すだけではなくなんかOpenGLを利用しないと正しく描画できないみたい
+        // https://github.com/zolad/VideoSlimmer
+        codecInputSurface = CodecInputSurface(encodeMediaCodec!!.createInputSurface())
+        codecInputSurface?.makeCurrent()
+        encodeMediaCodec!!.start()
 
         // デコード用（H.264 -> 生データ）MediaCodec
+        codecInputSurface?.createRender()
         decodeMediaCodec = MediaCodec.createDecoderByType(mimeType).apply {
             // デコード時は MediaExtractor の MediaFormat で良さそう
-            configure(currentMediaFormat!!, encoderSurface, null, 0)
+            configure(currentMediaFormat!!, codecInputSurface!!.surface, null, 0)
         }
+        decodeMediaCodec?.start()
 
         // nonNull
         val decodeMediaCodec = decodeMediaCodec!!
         val encodeMediaCodec = encodeMediaCodec!!
-        encodeMediaCodec.start()
-        decodeMediaCodec.start()
 
         println("""
             エンコーダー：${encodeMediaCodec.name}
             デコーダー：${decodeMediaCodec.name}
         """.trimIndent())
 
-        // 前回の動画ファイルを足した動画時間
+        /**
+         *  --- 複数ファイルを全てデコードする ---
+         * */
         var totalPresentationTime = 0L
         var prevPresentationTime = 0L
 
         // メタデータ格納用
         val bufferInfo = MediaCodec.BufferInfo()
 
-        // ループ制御
         var outputDone = false
         var inputDone = false
 
-        /**
-         *  --- 複数ファイルを全てデコードする ---
-         * */
+        var prevTimeSec = 0L
+
         while (!outputDone) {
             if (!inputDone) {
 
@@ -150,6 +150,13 @@ class VideoDataMerge(
                         if (currentMediaExtractor!!.sampleTime != -1L) {
                             prevPresentationTime = currentMediaExtractor!!.sampleTime
                         }
+
+                        val calcSec = prevPresentationTime / 1000 / 1000
+                        if (prevTimeSec != calcSec) {
+                            println(calcSec)
+                        }
+                        prevTimeSec = calcSec
+
                     } else {
                         totalPresentationTime += prevPresentationTime
                         // データがないので次データへ
@@ -172,7 +179,6 @@ class VideoDataMerge(
                     }
                 }
             }
-
             var decoderOutputAvailable = true
             while (decoderOutputAvailable) {
                 // Surface経由でデータを貰って保存する
@@ -181,7 +187,6 @@ class VideoDataMerge(
                     val encodedData = encodeMediaCodec.getOutputBuffer(encoderStatus)!!
                     if (bufferInfo.size > 1) {
                         if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
-                            // ファイルに書き込む...
                             mediaMuxer.writeSampleData(videoTrackIndex, encodedData, bufferInfo)
                         } else if (videoTrackIndex == NO_INDEX_VALUE) {
                             // MediaMuxerへ映像トラックを追加するのはこのタイミングで行う
@@ -205,6 +210,19 @@ class VideoDataMerge(
                 } else if (outputBufferId >= 0) {
                     val doRender = bufferInfo.size != 0
                     decodeMediaCodec.releaseOutputBuffer(outputBufferId, doRender)
+                    if (doRender) {
+                        var errorWait = false
+                        try {
+                            codecInputSurface?.awaitNewImage()
+                        } catch (e: Exception) {
+                            errorWait = true
+                        }
+                        if (!errorWait) {
+                            codecInputSurface?.drawImage()
+                            codecInputSurface?.setPresentationTime(bufferInfo.presentationTimeUs * 1000)
+                            codecInputSurface?.swapBuffers()
+                        }
+                    }
                     if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
                         decoderOutputAvailable = false
                         encodeMediaCodec.signalEndOfInputStream()
@@ -218,8 +236,8 @@ class VideoDataMerge(
             // デコーダー終了
             decodeMediaCodec.stop()
             decodeMediaCodec.release()
-            // Surface開放
-            encoderSurface?.release()
+            // OpenGL開放
+            codecInputSurface?.release()
             // エンコーダー終了
             encodeMediaCodec.stop()
             encodeMediaCodec.release()
@@ -235,7 +253,7 @@ class VideoDataMerge(
     fun stop() {
         decodeMediaCodec?.stop()
         decodeMediaCodec?.release()
-        encoderSurface?.release()
+        codecInputSurface?.release()
         encodeMediaCodec?.stop()
         encodeMediaCodec?.release()
         currentMediaExtractor?.release()
