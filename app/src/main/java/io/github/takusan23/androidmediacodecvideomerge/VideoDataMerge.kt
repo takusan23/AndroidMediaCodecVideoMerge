@@ -3,7 +3,7 @@ package io.github.takusan23.androidmediacodecvideomerge
 import android.media.*
 import io.github.takusan23.androidmediacodecvideomerge.gl.CodecInputSurface
 import java.io.File
-import java.nio.ByteBuffer
+
 
 /**
  * 映像データを結合する
@@ -85,6 +85,7 @@ class VideoDataMerge(
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
         }
 
+        // 後に映像トラックのトラック番号が入る
         var videoTrackIndex = NO_INDEX_VALUE
 
         // エンコード用（生データ -> H.264）MediaCodec
@@ -185,31 +186,12 @@ class VideoDataMerge(
                     val encodedData = encodeMediaCodec.getOutputBuffer(encoderStatus)!!
                     if (bufferInfo.size > 1) {
                         if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
+                            // ファイルに書き込む...
                             mediaMuxer.writeSampleData(videoTrackIndex, encodedData, bufferInfo)
-                        } else if (videoTrackIndex == NO_INDEX_VALUE) { // まだMediaFormatが出来ていない場合
-                            val csd = ByteArray(bufferInfo.size)
-                            encodedData.limit(bufferInfo.offset + bufferInfo.size)
-                            encodedData.position(bufferInfo.offset)
-                            encodedData[csd]
-                            var sps: ByteBuffer? = null
-                            var pps: ByteBuffer? = null
-                            for (a in bufferInfo.size - 1 downTo 0) {
-                                if (a > 3) {
-                                    if (csd[a] == 1.toByte() && csd[a - 1] == 0.toByte() && csd[a - 2] == 0.toByte() && csd[a - 3] == 0.toByte()) {
-                                        sps = ByteBuffer.allocate(a - 3)
-                                        pps = ByteBuffer.allocate(bufferInfo.size - (a - 3))
-                                        sps.put(csd, 0, a - 3).position(0)
-                                        pps.put(csd, a - 3, bufferInfo.size - (a - 3)).position(0)
-                                        break
-                                    }
-                                } else {
-                                    break
-                                }
-                            }
-                            val newFormat = MediaFormat.createVideoFormat(mimeType, width, height).apply {
-                                setByteBuffer("csd-0", sps)
-                                setByteBuffer("csd-1", pps)
-                            }
+                        } else if (videoTrackIndex == NO_INDEX_VALUE) {
+                            // MediaMuxerへ映像トラックを追加するのはこのタイミングで行う
+                            // このタイミングでやると固有のパラメーターがセットされたMediaFormatが手に入る(csd-0 とか)
+                            val newFormat = encodeMediaCodec.outputFormat
                             videoTrackIndex = mediaMuxer.addTrack(newFormat)
                             mediaMuxer.start()
                         }

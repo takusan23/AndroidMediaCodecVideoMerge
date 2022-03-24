@@ -11,6 +11,31 @@ import android.view.Surface;
 
 import java.nio.ByteBuffer;
 
+/*
+ * https://android.googlesource.com/platform/cts/+/jb-mr2-release/tests/tests/media/src/android/media/cts/InputSurface.java
+ *
+ * Copyright (C) 2013 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * Holds state associated with a Surface used for MediaCodec encoder input.
+ * <p>
+ * The constructor takes a Surface obtained from MediaCodec.createInputSurface(), and uses that
+ * to create an EGL window surface.  Calls to eglSwapBuffers() cause a frame of data to be sent
+ * to the video encoder.
+ */
 public class CodecInputSurface implements SurfaceTexture.OnFrameAvailableListener {
     private static final int EGL_RECORDABLE_ANDROID = 0x3142;
 
