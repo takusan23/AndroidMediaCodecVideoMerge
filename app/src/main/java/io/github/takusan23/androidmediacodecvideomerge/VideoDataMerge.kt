@@ -85,7 +85,7 @@ class VideoDataMerge(
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
         }
 
-        var videoTrackIndex = -100
+        var videoTrackIndex = NO_INDEX_VALUE
 
         // エンコード用（生データ -> H.264）MediaCodec
         encodeMediaCodec = MediaCodec.createEncoderByType(mimeType).apply {
@@ -117,9 +117,6 @@ class VideoDataMerge(
             デコーダー：${decodeMediaCodec.name}
         """.trimIndent())
 
-        // デコードが終わったフラグ
-        // var isEOLDecode = false
-
         /**
          *  --- 複数ファイルを全てデコードする ---
          * */
@@ -132,12 +129,13 @@ class VideoDataMerge(
         var outputDone = false
         var inputDone = false
 
+        var prevTimeSec = 0L
+
         while (!outputDone) {
             if (!inputDone) {
 
                 val inputBufferId = decodeMediaCodec.dequeueInputBuffer(TIMEOUT_US)
                 if (inputBufferId >= 0) {
-
                     val inputBuffer = decodeMediaCodec.getInputBuffer(inputBufferId)!!
                     val size = currentMediaExtractor!!.readSampleData(inputBuffer, 0)
                     if (size > 0) {
@@ -150,6 +148,13 @@ class VideoDataMerge(
                         if (currentMediaExtractor!!.sampleTime != -1L) {
                             prevPresentationTime = currentMediaExtractor!!.sampleTime
                         }
+
+                        val calcSec = prevPresentationTime / 1000 / 1000
+                        if (prevTimeSec != calcSec) {
+                            println(calcSec)
+                        }
+                        prevTimeSec = calcSec
+
                     } else {
                         totalPresentationTime += prevPresentationTime
                         // データがないので次データへ
@@ -181,7 +186,7 @@ class VideoDataMerge(
                     if (bufferInfo.size > 1) {
                         if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
                             mediaMuxer.writeSampleData(videoTrackIndex, encodedData, bufferInfo)
-                        } else if (videoTrackIndex == -100) { // -100 初期値
+                        } else if (videoTrackIndex == NO_INDEX_VALUE) { // まだMediaFormatが出来ていない場合
                             val csd = ByteArray(bufferInfo.size)
                             encodedData.limit(bufferInfo.offset + bufferInfo.size)
                             encodedData.position(bufferInfo.offset)
@@ -216,17 +221,17 @@ class VideoDataMerge(
                     continue
                 }
                 // Surfaceへレンダリングする。そしてOpenGLでゴニョゴニョする
-                val decoderStatus = decodeMediaCodec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
-                if (decoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                val outputBufferId = decodeMediaCodec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
+                if (outputBufferId == MediaCodec.INFO_TRY_AGAIN_LATER) {
                     decoderOutputAvailable = false
-                } else if (decoderStatus >= 0) {
+                } else if (outputBufferId >= 0) {
                     val doRender = bufferInfo.size != 0
-                    decodeMediaCodec.releaseOutputBuffer(decoderStatus, doRender)
+                    decodeMediaCodec.releaseOutputBuffer(outputBufferId, doRender)
                     if (doRender) {
                         var errorWait = false
                         try {
                             codecInputSurface?.awaitNewImage()
-                        } catch (e: java.lang.Exception) {
+                        } catch (e: Exception) {
                             errorWait = true
                         }
                         if (!errorWait) {
@@ -287,6 +292,13 @@ class VideoDataMerge(
             .map { index -> index to mediaExtractor.getTrackFormat(index) }
             .firstOrNull { (_, track) -> track.getString(MediaFormat.KEY_MIME)?.startsWith(mimeType) == true } ?: return null
         return Triple(mediaExtractor, index, track)
+    }
+
+    companion object {
+
+        /** トラック番号が空の場合 */
+        const val NO_INDEX_VALUE = -100
+
     }
 
 }

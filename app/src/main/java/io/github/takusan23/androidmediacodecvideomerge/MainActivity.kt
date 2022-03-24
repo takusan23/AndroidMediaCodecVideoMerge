@@ -88,7 +88,7 @@ class MainActivity : AppCompatActivity() {
             // ?.filter { it.extension == "ts" } // これ動画ファイル以外が入ってくる場合はここで見切りをつける
             ?.toList()
             ?.sortedBy { numberRegex.find(it.name)?.groupValues?.get(0)?.toIntOrNull() ?: 0 } // 数字の若い順にする
-            ?.take(1)
+            ?.take(2)
 
         // インスタンス作成
         videoDataMerge = VideoDataMerge(videoList!!, videoMergedFile /*bitRate = 1_000_000, frameRate = 30*/)
