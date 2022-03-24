@@ -86,6 +86,7 @@ class VideoDataMerge(
         }
 
         // 後に映像トラックのトラック番号が入る
+        // encodeMediaCodec.outputFormat を MediaMuxer へ渡す
         var videoTrackIndex = NO_INDEX_VALUE
 
         // エンコード用（生データ -> H.264）MediaCodec
@@ -150,6 +151,7 @@ class VideoDataMerge(
                             prevPresentationTime = currentMediaExtractor!!.sampleTime
                         }
 
+                        // TODO 後で消す
                         val calcSec = prevPresentationTime / 1000 / 1000
                         if (prevTimeSec != calcSec) {
                             println(calcSec)
@@ -191,6 +193,7 @@ class VideoDataMerge(
                         } else if (videoTrackIndex == NO_INDEX_VALUE) {
                             // MediaMuxerへ映像トラックを追加するのはこのタイミングで行う
                             // このタイミングでやると固有のパラメーターがセットされたMediaFormatが手に入る(csd-0 とか)
+                            // 映像がぶっ壊れている場合（緑で塗りつぶされてるとか）は多分このあたりが怪しい
                             val newFormat = encodeMediaCodec.outputFormat
                             videoTrackIndex = mediaMuxer.addTrack(newFormat)
                             mediaMuxer.start()
