@@ -1,9 +1,9 @@
 package io.github.takusan23.androidmediacodecvideomerge
 
 import android.media.*
-import android.view.Surface
+import io.github.takusan23.androidmediacodecvideomerge.gl.CodecInputSurface
 import java.io.File
-import kotlin.concurrent.thread
+import java.nio.ByteBuffer
 
 /**
  * 映像データを結合する
@@ -44,8 +44,8 @@ class VideoDataMerge(
     /** デコード用 [MediaCodec] */
     private var decodeMediaCodec: MediaCodec? = null
 
-    /** エンコーダーへ流す[Surface] */
-    private var inputSurface: Surface? = null
+    /** OpenGL */
+    private var codecInputSurface: CodecInputSurface? = null
 
     /**
      * 結合を開始する
@@ -65,6 +65,7 @@ class VideoDataMerge(
             currentMediaFormat = format
             // 音声のトラックを選択
             currentMediaExtractor?.selectTrack(index)
+            currentMediaExtractor?.seekTo(0, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
         }
 
         // 最初の動画を解析
@@ -84,126 +85,187 @@ class VideoDataMerge(
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
         }
 
-        // 映像を追加してトラック番号をもらう
-        // 多分 addTrack する際は MediaExtractor 経由で取得した MediaFormat を入れないといけない？
-        val videoTrackIndex = mediaMuxer.addTrack(currentMediaFormat!!)
+        var videoTrackIndex = -100
 
         // エンコード用（生データ -> H.264）MediaCodec
         encodeMediaCodec = MediaCodec.createEncoderByType(mimeType).apply {
             configure(videoMediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         }
+
         // エンコーダーのSurfaceを取得
         // デコーダーの出力Surfaceの項目にこれを指定して、エンコーダーに映像データがSurface経由で行くようにする
-        inputSurface = encodeMediaCodec!!.createInputSurface()
+        // なんだけど、直接Surfaceを渡すだけではなくなんかOpenGLを利用しないと正しく描画できないみたい
+        // https://github.com/zolad/VideoSlimmer
+        codecInputSurface = CodecInputSurface(encodeMediaCodec!!.createInputSurface())
+        codecInputSurface?.makeCurrent()
+        encodeMediaCodec!!.start()
+
         // デコード用（H.264 -> 生データ）MediaCodec
+        codecInputSurface?.createRender()
         decodeMediaCodec = MediaCodec.createDecoderByType(mimeType).apply {
             // デコード時は MediaExtractor の MediaFormat で良さそう
-            configure(currentMediaFormat!!, inputSurface, null, 0)
+            configure(currentMediaFormat!!, codecInputSurface!!.surface, null, 0)
         }
+        decodeMediaCodec?.start()
 
         // nonNull
         val decodeMediaCodec = decodeMediaCodec!!
         val encodeMediaCodec = encodeMediaCodec!!
-        // スタート
-        decodeMediaCodec.start()
-        encodeMediaCodec.start()
-        mediaMuxer.start()
+
+        println("""
+            エンコーダー：${encodeMediaCodec.name}
+            デコーダー：${decodeMediaCodec.name}
+        """.trimIndent())
 
         // デコードが終わったフラグ
-        var isEOLDecode = false
-
-        /**
-         * --- Surfaceに流れてきたデータをエンコードする ---
-         * */
-        thread {
-            val outputBufferInfo = MediaCodec.BufferInfo()
-            // デコード結果をもらう
-            // デコーダーが生きている間のみ
-            while (!isEOLDecode) {
-                val outputBufferId = encodeMediaCodec.dequeueOutputBuffer(outputBufferInfo, TIMEOUT_US)
-                if (outputBufferId >= 0) {
-                    val outputBuffer = encodeMediaCodec.getOutputBuffer(outputBufferId)!!
-                    // 書き込む
-                    mediaMuxer.writeSampleData(videoTrackIndex, outputBuffer, outputBufferInfo)
-                    // 返却
-                    encodeMediaCodec.releaseOutputBuffer(outputBufferId, false)
-                }
-            }
-        }
+        // var isEOLDecode = false
 
         /**
          *  --- 複数ファイルを全てデコードする ---
          * */
         var totalPresentationTime = 0L
         var prevPresentationTime = 0L
+
         // メタデータ格納用
-        val decoderBufferInfo = MediaCodec.BufferInfo()
-        while (true) {
-            // デコーダー部分
-            val inputBufferId = decodeMediaCodec.dequeueInputBuffer(TIMEOUT_US)
-            if (inputBufferId >= 0) {
-                // Extractorからデータを読みだす
-                val inputBuffer = decodeMediaCodec.getInputBuffer(inputBufferId)!!
-                val size = currentMediaExtractor!!.readSampleData(inputBuffer, 0)
-                if (size > 0) {
-                    // デコーダーへ流す
-                    // 今までの動画の分の再生位置を足しておく
-                    decodeMediaCodec.queueInputBuffer(inputBufferId, 0, size, currentMediaExtractor!!.sampleTime + totalPresentationTime, 0)
-                    currentMediaExtractor!!.advance()
-                    // 一個前の動画の動画サイズを控えておく
-                    // else で extractor.sampleTime すると既に-1にっているので
-                    if (currentMediaExtractor!!.sampleTime != -1L) {
-                        prevPresentationTime = currentMediaExtractor!!.sampleTime
-                    }
-                } else {
-                    totalPresentationTime += prevPresentationTime
-                    // データがないので次データへ
-                    if (videoListIterator.hasNext()) {
-                        // 次データへ
-                        val file = videoListIterator.next()
-                        // 多分いる
-                        decodeMediaCodec.queueInputBuffer(inputBufferId, 0, 0, 0, 0)
-                        // 動画の情報を読み出す
-                        currentMediaExtractor!!.release()
-                        extractVideoFile(file.path)
+        val bufferInfo = MediaCodec.BufferInfo()
+
+        var outputDone = false
+        var inputDone = false
+
+        while (!outputDone) {
+            if (!inputDone) {
+
+                val inputBufferId = decodeMediaCodec.dequeueInputBuffer(TIMEOUT_US)
+                if (inputBufferId >= 0) {
+
+                    val inputBuffer = decodeMediaCodec.getInputBuffer(inputBufferId)!!
+                    val size = currentMediaExtractor!!.readSampleData(inputBuffer, 0)
+                    if (size > 0) {
+                        // デコーダーへ流す
+                        // 今までの動画の分の再生位置を足しておく
+                        decodeMediaCodec.queueInputBuffer(inputBufferId, 0, size, currentMediaExtractor!!.sampleTime + totalPresentationTime, 0)
+                        currentMediaExtractor!!.advance()
+                        // 一個前の動画の動画サイズを控えておく
+                        // else で extractor.sampleTime すると既に-1にっているので
+                        if (currentMediaExtractor!!.sampleTime != -1L) {
+                            prevPresentationTime = currentMediaExtractor!!.sampleTime
+                        }
                     } else {
-                        // データなくなった場合は終了
-                        decodeMediaCodec.queueInputBuffer(inputBufferId, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                        // 開放
-                        currentMediaExtractor!!.release()
-                        // 終了
-                        break
+                        totalPresentationTime += prevPresentationTime
+                        // データがないので次データへ
+                        if (videoListIterator.hasNext()) {
+                            // 次データへ
+                            val file = videoListIterator.next()
+                            // 多分いる
+                            decodeMediaCodec.queueInputBuffer(inputBufferId, 0, 0, 0, 0)
+                            // 動画の情報を読み出す
+                            currentMediaExtractor!!.release()
+                            extractVideoFile(file.path)
+                        } else {
+                            // データなくなった場合は終了
+                            decodeMediaCodec.queueInputBuffer(inputBufferId, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            // 開放
+                            currentMediaExtractor!!.release()
+                            // 終了
+                            inputDone = true
+                        }
                     }
                 }
             }
-            // デコードした内容をエンコーダーへ移す
-            val outputBufferId = decodeMediaCodec.dequeueOutputBuffer(decoderBufferInfo, TIMEOUT_US)
-            if (outputBufferId >= 0) {
-                // デコード結果をもらう。第二引数はtrueにしてSurfaceへ描画する
-                decodeMediaCodec.releaseOutputBuffer(outputBufferId, true)
+            var decoderOutputAvailable = true
+            while (decoderOutputAvailable) {
+                // Surface経由でデータを貰って保存する
+                val encoderStatus = encodeMediaCodec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
+                if (encoderStatus >= 0) {
+                    val encodedData = encodeMediaCodec.getOutputBuffer(encoderStatus)!!
+                    if (bufferInfo.size > 1) {
+                        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
+                            mediaMuxer.writeSampleData(videoTrackIndex, encodedData, bufferInfo)
+                        } else if (videoTrackIndex == -100) { // -100 初期値
+                            val csd = ByteArray(bufferInfo.size)
+                            encodedData.limit(bufferInfo.offset + bufferInfo.size)
+                            encodedData.position(bufferInfo.offset)
+                            encodedData[csd]
+                            var sps: ByteBuffer? = null
+                            var pps: ByteBuffer? = null
+                            for (a in bufferInfo.size - 1 downTo 0) {
+                                if (a > 3) {
+                                    if (csd[a] == 1.toByte() && csd[a - 1] == 0.toByte() && csd[a - 2] == 0.toByte() && csd[a - 3] == 0.toByte()) {
+                                        sps = ByteBuffer.allocate(a - 3)
+                                        pps = ByteBuffer.allocate(bufferInfo.size - (a - 3))
+                                        sps.put(csd, 0, a - 3).position(0)
+                                        pps.put(csd, a - 3, bufferInfo.size - (a - 3)).position(0)
+                                        break
+                                    }
+                                } else {
+                                    break
+                                }
+                            }
+                            val newFormat = MediaFormat.createVideoFormat(mimeType, width, height).apply {
+                                setByteBuffer("csd-0", sps)
+                                setByteBuffer("csd-1", pps)
+                            }
+                            videoTrackIndex = mediaMuxer.addTrack(newFormat)
+                            mediaMuxer.start()
+                        }
+                    }
+                    outputDone = bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
+                    encodeMediaCodec.releaseOutputBuffer(encoderStatus, false)
+                }
+                if (encoderStatus != MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    continue
+                }
+                // Surfaceへレンダリングする。そしてOpenGLでゴニョゴニョする
+                val decoderStatus = decodeMediaCodec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
+                if (decoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    decoderOutputAvailable = false
+                } else if (decoderStatus >= 0) {
+                    val doRender = bufferInfo.size != 0
+                    decodeMediaCodec.releaseOutputBuffer(decoderStatus, doRender)
+                    if (doRender) {
+                        var errorWait = false
+                        try {
+                            codecInputSurface?.awaitNewImage()
+                        } catch (e: java.lang.Exception) {
+                            errorWait = true
+                        }
+                        if (!errorWait) {
+                            codecInputSurface?.drawImage()
+                            codecInputSurface?.setPresentationTime(bufferInfo.presentationTimeUs * 1000)
+                            codecInputSurface?.swapBuffers()
+                        }
+                    }
+                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                        decoderOutputAvailable = false
+                        encodeMediaCodec.signalEndOfInputStream()
+                    }
+                }
             }
         }
 
-        // デコーダー終了
-        isEOLDecode = true
-        decodeMediaCodec.stop()
-        decodeMediaCodec.release()
-
-        // エンコーダー終了
-        inputSurface?.release()
-        encodeMediaCodec.stop()
-        encodeMediaCodec.release()
-
-        // MediaMuxerも終了
-        mediaMuxer.stop()
-        mediaMuxer.release()
+        // Xiaomi端末で落ちたので例外処理
+        try {
+            // デコーダー終了
+            decodeMediaCodec.stop()
+            decodeMediaCodec.release()
+            // OpenGL開放
+            codecInputSurface?.release()
+            // エンコーダー終了
+            encodeMediaCodec.stop()
+            encodeMediaCodec.release()
+            // MediaMuxerも終了
+            mediaMuxer.stop()
+            mediaMuxer.release()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     /** 強制終了時に呼ぶ */
     fun stop() {
         decodeMediaCodec?.stop()
         decodeMediaCodec?.release()
-        inputSurface?.release()
+        codecInputSurface?.release()
         encodeMediaCodec?.stop()
         encodeMediaCodec?.release()
         currentMediaExtractor?.release()

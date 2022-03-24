@@ -171,10 +171,15 @@ class AudioDataMerge(
             }
         }
 
-        // デコーダー終了
-        decodeMediaCodec.stop()
-        decodeMediaCodec.release()
-        bufferedOutputStream.close()
+        // Xiaomi端末で落ちたので例外処理
+        try {
+            // デコーダー終了
+            decodeMediaCodec.stop()
+            decodeMediaCodec.release()
+            bufferedOutputStream.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         // 読み出し済みの位置と時間
         var totalBytesRead = 0
@@ -221,19 +226,24 @@ class AudioDataMerge(
             }
         }
 
-        // エンコーダー終了
-        encodeMediaCodec.stop()
-        encodeMediaCodec.release()
-        bufferedInputStream.close()
+        // Xiaomi端末で落ちたので例外処理
+        try {
+            // エンコーダー終了
+            encodeMediaCodec.stop()
+            encodeMediaCodec.release()
+            bufferedInputStream.close()
 
-        // MediaMuxerも終了
-        // MediaMuxer#stopでコケる場合、大体MediaFormatのパラメータ不足です。
-        // MediaExtractorで出てきたFormatを入れると直ると思います。
-        mediaMuxer.stop()
-        mediaMuxer.release()
+            // MediaMuxerも終了
+            // MediaMuxer#stopでコケる場合、大体MediaFormatのパラメータ不足です。
+            // MediaExtractorで出てきたFormatを入れると直ると思います。
+            mediaMuxer.stop()
+            mediaMuxer.release()
 
-        // 一時ファイルの削除
-        tempRawDataFile.delete()
+            // 一時ファイルの削除
+            tempRawDataFile.delete()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     /** 強制終了時に呼ぶ */

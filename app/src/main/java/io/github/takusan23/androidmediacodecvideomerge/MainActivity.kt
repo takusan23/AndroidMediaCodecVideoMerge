@@ -1,6 +1,7 @@
 package io.github.takusan23.androidmediacodecvideomerge
 
 import android.os.Bundle
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import java.io.File
@@ -32,6 +33,9 @@ class MainActivity : AppCompatActivity() {
 
     /** 音声くっつけるやつ */
     private lateinit var audioDataMerge: AudioDataMerge
+
+    /** 時間を表示するTextView */
+    private val textView by lazy { findViewById<TextView>(R.id.activity_main_text_view) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,6 +88,7 @@ class MainActivity : AppCompatActivity() {
             // ?.filter { it.extension == "ts" } // これ動画ファイル以外が入ってくる場合はここで見切りをつける
             ?.toList()
             ?.sortedBy { numberRegex.find(it.name)?.groupValues?.get(0)?.toIntOrNull() ?: 0 } // 数字の若い順にする
+            ?.take(1)
 
         // インスタンス作成
         videoDataMerge = VideoDataMerge(videoList!!, videoMergedFile /*bitRate = 1_000_000, frameRate = 30*/)
@@ -100,14 +105,14 @@ class MainActivity : AppCompatActivity() {
             showMessage("映像終了：${System.currentTimeMillis() - videoStartMs} Ms")
 
             // 音声デコード
-            val audioStartMs = System.currentTimeMillis()
-            showMessage("音声開始：$audioStartMs")
-            audioDataMerge.merge()
-            showMessage("音声終了：${System.currentTimeMillis() - audioStartMs} Ms")
+          //  val audioStartMs = System.currentTimeMillis()
+          //  showMessage("音声開始：$audioStartMs")
+          //  audioDataMerge.merge()
+          //  showMessage("音声終了：${System.currentTimeMillis() - audioStartMs} Ms")
 
-            // 合成...
-            MergedDataMuxer.mixed(finalResultFile, listOf(audioMergedFile, videoMergedFile))
-            showMessage("合成終了：${System.currentTimeMillis() - videoStartMs} Ms")
+          //  // 合成...
+          //  MergedDataMuxer.mixed(finalResultFile, listOf(audioMergedFile, videoMergedFile))
+          //  showMessage("合成終了：${System.currentTimeMillis() - videoStartMs} Ms")
         }
     }
 
@@ -119,6 +124,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun showMessage(message: String) {
         println(message)
-        runOnUiThread { Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show() }
+        runOnUiThread {
+            textView.append("\n$message")
+            Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+        }
     }
 }
