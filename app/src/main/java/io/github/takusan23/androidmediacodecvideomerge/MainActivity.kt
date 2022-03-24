@@ -88,7 +88,7 @@ class MainActivity : AppCompatActivity() {
             // ?.filter { it.extension == "ts" } // これ動画ファイル以外が入ってくる場合はここで見切りをつける
             ?.toList()
             ?.sortedBy { numberRegex.find(it.name)?.groupValues?.get(0)?.toIntOrNull() ?: 0 } // 数字の若い順にする
-            ?.take(2)
+        // ?.take(2)
 
         // インスタンス作成
         videoDataMerge = VideoDataMerge(videoList!!, videoMergedFile /*bitRate = 1_000_000, frameRate = 30*/)
@@ -105,14 +105,14 @@ class MainActivity : AppCompatActivity() {
             showMessage("映像終了：${System.currentTimeMillis() - videoStartMs} Ms")
 
             // 音声デコード
-          //  val audioStartMs = System.currentTimeMillis()
-          //  showMessage("音声開始：$audioStartMs")
-          //  audioDataMerge.merge()
-          //  showMessage("音声終了：${System.currentTimeMillis() - audioStartMs} Ms")
+            val audioStartMs = System.currentTimeMillis()
+            showMessage("音声開始：$audioStartMs")
+            audioDataMerge.merge()
+            showMessage("音声終了：${System.currentTimeMillis() - audioStartMs} Ms")
 
-          //  // 合成...
-          //  MergedDataMuxer.mixed(finalResultFile, listOf(audioMergedFile, videoMergedFile))
-          //  showMessage("合成終了：${System.currentTimeMillis() - videoStartMs} Ms")
+            //  // 合成...
+            MergedDataMuxer.mixed(finalResultFile, listOf(audioMergedFile, videoMergedFile))
+            showMessage("合成終了：${System.currentTimeMillis() - videoStartMs} Ms")
         }
     }
 

@@ -1,7 +1,7 @@
 package io.github.takusan23.androidmediacodecvideomerge
 
 import android.media.*
-import io.github.takusan23.androidmediacodecvideomerge.gl.CodecInputSurface
+import android.view.Surface
 import java.io.File
 
 
@@ -45,7 +45,10 @@ class VideoDataMerge(
     private var decodeMediaCodec: MediaCodec? = null
 
     /** OpenGL */
-    private var codecInputSurface: CodecInputSurface? = null
+    // private var codecInputSurface: CodecInputSurface? = null
+
+    /** エンコーダーとデコーダーの橋渡しをするSurface */
+    private var encoderSurface: Surface? = null
 
     /**
      * 結合を開始する
@@ -96,43 +99,42 @@ class VideoDataMerge(
 
         // エンコーダーのSurfaceを取得
         // デコーダーの出力Surfaceの項目にこれを指定して、エンコーダーに映像データがSurface経由で行くようにする
-        // なんだけど、直接Surfaceを渡すだけではなくなんかOpenGLを利用しないと正しく描画できないみたい
-        // https://github.com/zolad/VideoSlimmer
-        codecInputSurface = CodecInputSurface(encodeMediaCodec!!.createInputSurface())
-        codecInputSurface?.makeCurrent()
-        encodeMediaCodec!!.start()
+        encoderSurface = encodeMediaCodec!!.createInputSurface()
 
         // デコード用（H.264 -> 生データ）MediaCodec
-        codecInputSurface?.createRender()
         decodeMediaCodec = MediaCodec.createDecoderByType(mimeType).apply {
             // デコード時は MediaExtractor の MediaFormat で良さそう
-            configure(currentMediaFormat!!, codecInputSurface!!.surface, null, 0)
+            configure(currentMediaFormat!!, encoderSurface, null, 0)
         }
-        decodeMediaCodec?.start()
 
         // nonNull
         val decodeMediaCodec = decodeMediaCodec!!
         val encodeMediaCodec = encodeMediaCodec!!
+        encodeMediaCodec.start()
+        decodeMediaCodec.start()
 
         println("""
             エンコーダー：${encodeMediaCodec.name}
             デコーダー：${decodeMediaCodec.name}
         """.trimIndent())
 
-        /**
-         *  --- 複数ファイルを全てデコードする ---
-         * */
+        // 前回の動画ファイルを足した動画時間
         var totalPresentationTime = 0L
         var prevPresentationTime = 0L
 
         // メタデータ格納用
         val bufferInfo = MediaCodec.BufferInfo()
 
+        // ループ制御
         var outputDone = false
         var inputDone = false
 
+        // TODO 時間
         var prevTimeSec = 0L
 
+        /**
+         *  --- 複数ファイルを全てデコードする ---
+         * */
         while (!outputDone) {
             if (!inputDone) {
 
@@ -180,6 +182,7 @@ class VideoDataMerge(
                     }
                 }
             }
+
             var decoderOutputAvailable = true
             while (decoderOutputAvailable) {
                 // Surface経由でデータを貰って保存する
@@ -212,19 +215,6 @@ class VideoDataMerge(
                 } else if (outputBufferId >= 0) {
                     val doRender = bufferInfo.size != 0
                     decodeMediaCodec.releaseOutputBuffer(outputBufferId, doRender)
-                    if (doRender) {
-                        var errorWait = false
-                        try {
-                            codecInputSurface?.awaitNewImage()
-                        } catch (e: Exception) {
-                            errorWait = true
-                        }
-                        if (!errorWait) {
-                            codecInputSurface?.drawImage()
-                            codecInputSurface?.setPresentationTime(bufferInfo.presentationTimeUs * 1000)
-                            codecInputSurface?.swapBuffers()
-                        }
-                    }
                     if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
                         decoderOutputAvailable = false
                         encodeMediaCodec.signalEndOfInputStream()
@@ -238,8 +228,8 @@ class VideoDataMerge(
             // デコーダー終了
             decodeMediaCodec.stop()
             decodeMediaCodec.release()
-            // OpenGL開放
-            codecInputSurface?.release()
+            // Surface開放
+            encoderSurface?.release()
             // エンコーダー終了
             encodeMediaCodec.stop()
             encodeMediaCodec.release()
@@ -255,7 +245,7 @@ class VideoDataMerge(
     fun stop() {
         decodeMediaCodec?.stop()
         decodeMediaCodec?.release()
-        codecInputSurface?.release()
+        encoderSurface?.release()
         encodeMediaCodec?.stop()
         encodeMediaCodec?.release()
         currentMediaExtractor?.release()
