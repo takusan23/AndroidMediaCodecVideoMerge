@@ -7,13 +7,13 @@ import java.io.File
  * 音声データを結合する
  *
  * @param videoList 結合する動画、音声ファイルの配列。入っている順番どおりに結合します。
- * @param mergeFilePath 結合したファイルの保存先
+ * @param resultFile 結合したファイルの保存
  * @param tempRawDataFile 一時的ファイル保存先
  * @param bitRate ビットレート。なんかゴミみたいな音質だった...
  * */
 class AudioDataMerge(
     videoList: List<File>,
-    private val mergeFilePath: File,
+    private val resultFile: File,
     private val tempRawDataFile: File,
     private val bitRate: Int = 192_000,
 ) {
@@ -34,7 +34,7 @@ class AudioDataMerge(
     private val bufferedInputStream by lazy { tempRawDataFile.inputStream().buffered() }
 
     /** ファイル合成 */
-    private val mediaMuxer by lazy { MediaMuxer(mergeFilePath.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) }
+    private val mediaMuxer by lazy { MediaMuxer(resultFile.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) }
 
     /** 取り出した[MediaFormat] */
     private var currentMediaFormat: MediaFormat? = null
@@ -269,7 +269,6 @@ class AudioDataMerge(
     private fun extractMedia(videoPath: String, mimeType: String): Triple<MediaExtractor, Int, MediaFormat>? {
         println(videoPath)
         val mediaExtractor = MediaExtractor().apply { setDataSource(videoPath) }
-        // 映像トラックとインデックス番号のPairを作って返す
         val (index, track) = (0 until mediaExtractor.trackCount)
             .map { index -> index to mediaExtractor.getTrackFormat(index) }
             .firstOrNull { (_, track) -> track.getString(MediaFormat.KEY_MIME)?.startsWith(mimeType) == true } ?: return null

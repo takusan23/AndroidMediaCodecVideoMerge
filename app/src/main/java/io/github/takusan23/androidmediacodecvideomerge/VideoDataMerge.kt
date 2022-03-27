@@ -9,13 +9,13 @@ import java.io.File
  * 映像データを結合する
  *
  * @param videoList 結合する動画、音声ファイルの配列。入っている順番どおりに結合します。
- * @param mergeFilePath 結合したファイルの保存先
+ * @param resultFile 結合したファイルの保存
  * @param bitRate ビットレート。何故か取れなかった
  * @param frameRate フレームレート。何故か取れなかった
  * */
 class VideoDataMerge(
     videoList: List<File>,
-    private val mergeFilePath: File,
+    private val resultFile: File,
     private val bitRate: Int = 1_000_000, // 1Mbps
     private val frameRate: Int = 30, // 30fps
 ) {
@@ -30,7 +30,7 @@ class VideoDataMerge(
     private val videoListIterator = videoList.listIterator()
 
     /** ファイル合成 */
-    private val mediaMuxer by lazy { MediaMuxer(mergeFilePath.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) }
+    private val mediaMuxer by lazy { MediaMuxer(resultFile.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) }
 
     /** 取り出した[MediaFormat] */
     private var currentMediaFormat: MediaFormat? = null

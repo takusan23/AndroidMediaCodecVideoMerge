@@ -10,7 +10,7 @@ import java.io.File
  * 動画の幅とかを変えられます...
  *
  * @param videoList 結合する動画、音声ファイルの配列。入っている順番どおりに結合します。
- * @param mergeFilePath 結合したファイルの保存先
+ * @param resultFile 結合したファイルの保存
  * @param bitRate ビットレート。何故か取れなかった
  * @param frameRate フレームレート。何故か取れなかった
  * @param videoHeight 動画の高さを帰る場合は変えられます。16の倍数であることが必須です
@@ -18,7 +18,7 @@ import java.io.File
  * */
 class VideoDataOpenGlMerge(
     videoList: List<File>,
-    private val mergeFilePath: File,
+    private val resultFile: File,
     private val bitRate: Int = 1_000_000, // 1Mbps
     private val frameRate: Int = 30, // 30fps
     private val videoWidth: Int = 1280,
@@ -34,7 +34,7 @@ class VideoDataOpenGlMerge(
     private val videoListIterator = videoList.listIterator()
 
     /** ファイル合成 */
-    private val mediaMuxer by lazy { MediaMuxer(mergeFilePath.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) }
+    private val mediaMuxer by lazy { MediaMuxer(resultFile.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) }
 
     /** 取り出した[MediaFormat] */
     private var currentMediaFormat: MediaFormat? = null
@@ -268,9 +268,7 @@ class VideoDataOpenGlMerge(
      * @param videoPath 動画の動画パス
      * */
     private fun extractMedia(videoPath: String, mimeType: String): Triple<MediaExtractor, Int, MediaFormat>? {
-        println(videoPath)
         val mediaExtractor = MediaExtractor().apply { setDataSource(videoPath) }
-        // 映像トラックとインデックス番号のPairを作って返す
         val (index, track) = (0 until mediaExtractor.trackCount)
             .map { index -> index to mediaExtractor.getTrackFormat(index) }
             .firstOrNull { (_, track) -> track.getString(MediaFormat.KEY_MIME)?.startsWith(mimeType) == true } ?: return null
