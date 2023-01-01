@@ -13,21 +13,6 @@ import kotlin.concurrent.thread
  * /sdcard/Android/data/io.github.takusan23.androidmediacodecvideomerge/files/video
  * */
 class MainActivity : AppCompatActivity() {
-    /** 動画ファイルがあるフォルダ名 */
-    private val FOLDER_NAME = "bakkure"
-
-    /** 映像 ファイル名 */
-    private val MERGE_VIDEO_FILE_NAME = "video_merge.mp4"
-
-    /** 音声 ファイル名 */
-    private val MERGE_AUDIO_FILE_NAME = "audio_merge.aac"
-
-    /** 映像と音声を合わせたファイル */
-    private val FINAL_RESULT_FILE = "final_merge.mp4"
-
-    /** 一時ファイルの名前 */
-    private val TEMP_RAW_DATA_FILE_NAME = "temp_raw_data"
-
     /** 映像くっつけるやつ */
     private lateinit var videoDataMerge: VideoDataMerge
 
@@ -128,5 +113,22 @@ class MainActivity : AppCompatActivity() {
             textView.append("\n$message")
             Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    companion object {
+        /** 動画ファイルがあるフォルダ名 */
+        private const val FOLDER_NAME = "bakkure"
+
+        /** 映像 ファイル名 */
+        private const val MERGE_VIDEO_FILE_NAME = "video_merge.mp4"
+
+        /** 音声 ファイル名 */
+        private const val MERGE_AUDIO_FILE_NAME = "audio_merge.aac"
+
+        /** 映像と音声を合わせたファイル */
+        private const val FINAL_RESULT_FILE = "final_merge.mp4"
+
+        /** 一時ファイルの名前 */
+        private const val TEMP_RAW_DATA_FILE_NAME = "temp_raw_data"
     }
 }
