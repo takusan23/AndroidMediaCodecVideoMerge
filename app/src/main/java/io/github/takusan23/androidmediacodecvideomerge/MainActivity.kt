@@ -14,7 +14,7 @@ import kotlin.concurrent.thread
  * */
 class MainActivity : AppCompatActivity() {
     /** 映像くっつけるやつ */
-    private lateinit var videoDataMerge: VideoDataMerge
+    private lateinit var videoDataMerge: VideoDataOpenGlMerge
 
     /** 音声くっつけるやつ */
     private lateinit var audioDataMerge: AudioDataMerge
@@ -76,8 +76,20 @@ class MainActivity : AppCompatActivity() {
         // ?.take(2)
 
         // インスタンス作成
-        videoDataMerge = VideoDataMerge(videoList!!, videoMergedFile /*bitRate = 1_000_000, frameRate = 30*/)
-        audioDataMerge = AudioDataMerge(videoList!!, audioMergedFile, tempRawDataFile, bitRate = 192_000)
+        videoDataMerge = VideoDataOpenGlMerge(
+            videoList = videoList!!, // merge videos
+            resultFile = videoMergedFile, // result file
+            bitRate = 1_000_000, // 1Mbps
+            frameRate = 30, // 30fps
+            videoWidth = 1280, // video width
+            videoHeight = 720 // video height
+        )
+        audioDataMerge = AudioDataMerge(
+            videoList = videoList!!,
+            resultFile = audioMergedFile,
+            tempRawDataFile = tempRawDataFile,
+            bitRate = 192_000
+        )
 
         // 別スレッドを起動して開始
         // 音声と映像をそれぞれ並列で実行したほうがいいと思います...（デコーダーの起動制限に引っかからなければ）

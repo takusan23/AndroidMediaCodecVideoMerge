@@ -153,7 +153,7 @@ class VideoDataOpenGlMerge(
 
                         val calcSec = prevPresentationTime / 1000 / 1000
                         if (prevTimeSec != calcSec) {
-                            println(calcSec)
+                          //  println(calcSec)
                         }
                         prevTimeSec = calcSec
 
@@ -268,6 +268,7 @@ class VideoDataOpenGlMerge(
      * @param videoPath 動画の動画パス
      * */
     private fun extractMedia(videoPath: String, mimeType: String): Triple<MediaExtractor, Int, MediaFormat>? {
+        println(videoPath)
         val mediaExtractor = MediaExtractor().apply { setDataSource(videoPath) }
         val (index, track) = (0 until mediaExtractor.trackCount)
             .map { index -> index to mediaExtractor.getTrackFormat(index) }
